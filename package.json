@@ -8,6 +8,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
     "firebase": "^12.17.1",
+    "lucide-react": "^1.28.0",
     "mammoth": "^1.9.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.2.8",
@@ -16,12 +17,12 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-  "dev": "vite",
-  "build": "vite build",
-  "preview": "vite preview"
-},
-"devDependencies": {
-  "@vitejs/plugin-react": "^6.0.5",
-  "vite": "^8.2.0"
-}
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.0"
+  }
 }

@@ -1,47 +1,51 @@
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { Link, useNavigate } from "react-router-dom";
+import { Home, BookOpen, Upload, History, LogOut } from "lucide-react";
+import "./Navbar.css";
 
-export default function Navbar() {
-  const { user, logout } = useAuth();
+function Navbar() {
+  const navigate = useNavigate();
+
+  const logout = () => {
+    // nanti sesuaikan dengan Firebase logout kamu
+    localStorage.removeItem("user");
+    navigate("/login");
+  };
 
   return (
-    <header className="navbar">
-      <div className="navbar-inner">
-        <Link to="/" className="brand">
-          <span className="brand-icon">📚</span>
-          <span>
-            Latihan<span className="brand-accent">Ku</span>
-          </span>
+    <nav className="navbar">
+      <div className="navbar-brand">
+        <BookOpen size={28} />
+        <h2>Kk Jedi Jaya</h2>
+      </div>
+
+      <div className="navbar-menu">
+        <Link to="/dashboard">
+          <Home size={18} />
+          Dashboard
         </Link>
 
-        {user && (
-          <nav className="nav-links">
-            <Link to="/">Dashboard</Link>
-            <Link to="/upload">Upload Soal</Link>
-            <Link to="/history">Riwayat</Link>
-          </nav>
-        )}
+        <Link to="/quiz">
+          <BookOpen size={18} />
+          Quiz
+        </Link>
 
-        <div className="nav-actions">
-          {user ? (
-            <>
-              <span className="user-chip">{user.displayName || user.email}</span>
-              <button type="button" className="btn btn-ghost" onClick={logout}>
-                Keluar
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/login" className="btn btn-ghost">
-                Masuk
-              </Link>
-              <Link to="/register" className="btn btn-primary">
-                Daftar
-              </Link>
-            </>
-          )}
-        </div>
+        <Link to="/upload">
+          <Upload size={18} />
+          Upload
+        </Link>
+
+        <Link to="/history">
+          <History size={18} />
+          History
+        </Link>
+
+        <button onClick={logout} className="logout">
+          <LogOut size={18} />
+          Logout
+        </button>
       </div>
-    </header>
+    </nav>
   );
 }
+
+export default Navbar;
