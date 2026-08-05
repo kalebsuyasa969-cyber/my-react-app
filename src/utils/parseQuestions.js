@@ -1,6 +1,6 @@
-const OPTION_PATTERN = /^([A-Ea-e])[\).\:\-]\s*(.+)$/;
-const ANSWER_PATTERN = /^(?:jawaban|answer|kunci)\s*[:\-]\s*([A-Ea-e])/i;
-const EXPLANATION_PATTERN = /^(?:penjelasan|pembahasan|explanation|alasan)\s*[:\-]\s*(.+)$/i;
+const OPTION_PATTERN = /^([A-Ea-e])[).:-]\s*(.+)$/;
+const ANSWER_PATTERN = /^(?:jawaban|answer|kunci)\s*[:-]\s*([A-Ea-e])/i;
+const EXPLANATION_PATTERN = /^(?:penjelasan|pembahasan|explanation|alasan)\s*[:-]\s*(.+)$/i;
 
 function normalizeText(text) {
   return text

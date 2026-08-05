@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   collection,
-  getDocs,
-  orderBy,
   query,
   where,
-} from 'firebase/firestore';
+  getDocs,
+} from "firebase/firestore";
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import LoadingSpinner from '../components/LoadingSpinner';
