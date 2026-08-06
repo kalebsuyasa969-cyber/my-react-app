@@ -83,13 +83,12 @@ function parseQuestionBlock(block) {
 
   const questionText = questionLines.join(' ').trim();
 
-  if (!questionText || options.length < 2 || !correctAnswer) {
+  if (!questionText || options.length < 2) {
     return null;
   }
 
-  const validAnswer = options.some((option) => option.key === correctAnswer);
-  if (!validAnswer) {
-    return null;
+  if (correctAnswer && !options.some((option) => option.key === correctAnswer)) {
+    correctAnswer = null;
   }
 
   return {
@@ -98,7 +97,7 @@ function parseQuestionBlock(block) {
     text: questionText,
     options,
     correctAnswer,
-    explanation: explanation || 'Pembahasan belum tersedia untuk soal ini.',
+    explanation: explanation || '',
   };
 }
 

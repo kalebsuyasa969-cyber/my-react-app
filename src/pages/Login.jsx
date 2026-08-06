@@ -19,7 +19,7 @@ export default function Login() {
       await login(email, password);
       navigate('/');
     } catch (err) {
-      setError('Email atau password salah. Coba lagi.');
+      setError(`Login gagal (${err.code || 'unknown'}): ${err.message}`);
     } finally {
       setLoading(false);
     }

@@ -25,7 +25,7 @@ export default function Register() {
       } else if (err.code === 'auth/weak-password') {
         setError('Password terlalu lemah. Minimal 6 karakter.');
       } else {
-        setError('Pendaftaran gagal. Periksa data Anda.');
+        setError(`Pendaftaran gagal (${err.code || 'unknown'}): ${err.message}`);
       }
     } finally {
       setLoading(false);

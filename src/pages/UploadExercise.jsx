@@ -1,11 +1,39 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { db, storage } from '../firebase';
+import { db } from '../firebase';
 import { extractTextFromFile } from '../utils/parseDocument';
 import { getFormatGuide, parseQuestionsFromText } from '../utils/parseQuestions';
+
+const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E'];
+
+function blankQuestion(number) {
+  return {
+    id: `manual-${Date.now()}-${number}`,
+    number,
+    text: '',
+    options: [
+      { key: 'A', text: '' },
+      { key: 'B', text: '' },
+      { key: 'C', text: '' },
+      { key: 'D', text: '' },
+    ],
+    correctAnswer: null,
+    explanation: '',
+  };
+}
+
+function isQuestionComplete(question) {
+  const filledOptions = question.options.filter((option) => option.text.trim());
+  return (
+    Boolean(question.text.trim()) &&
+    filledOptions.length >= 2 &&
+    Boolean(question.correctAnswer) &&
+    filledOptions.some((option) => option.key === question.correctAnswer)
+  );
+}
 
 export default function UploadExercise() {
   const { user } = useAuth();
@@ -32,7 +60,7 @@ export default function UploadExercise() {
       if (questions.length === 0) {
         setPreviewQuestions([]);
         setError(
-          'Tidak ada soal pilihan ganda yang terdeteksi. Pastikan format dokumen sesuai panduan di bawah.'
+          'Tidak ada soal yang terdeteksi. Pastikan dokumen menomori tiap soal (1. 2. 3. ...) dan pilihan diawali A. B. C. D. — atau tambahkan soal secara manual di bawah.'
         );
       } else {
         setPreviewQuestions(questions);
@@ -48,11 +76,71 @@ export default function UploadExercise() {
     }
   }
 
+  function updateQuestion(index, patch) {
+    setPreviewQuestions((prev) =>
+      prev.map((question, i) => (i === index ? { ...question, ...patch } : question))
+    );
+  }
+
+  function updateOptionText(qIndex, optIndex, value) {
+    setPreviewQuestions((prev) =>
+      prev.map((question, i) => {
+        if (i !== qIndex) return question;
+        const options = question.options.map((option, o) =>
+          o === optIndex ? { ...option, text: value } : option
+        );
+        return { ...question, options };
+      })
+    );
+  }
+
+  function addOption(qIndex) {
+    setPreviewQuestions((prev) =>
+      prev.map((question, i) => {
+        if (i !== qIndex) return question;
+        const nextKey = OPTION_KEYS[question.options.length];
+        if (!nextKey) return question;
+        return { ...question, options: [...question.options, { key: nextKey, text: '' }] };
+      })
+    );
+  }
+
+  function removeOption(qIndex, optIndex) {
+    setPreviewQuestions((prev) =>
+      prev.map((question, i) => {
+        if (i !== qIndex) return question;
+        if (question.options.length <= 2) return question;
+        const removedKey = question.options[optIndex].key;
+        const options = question.options
+          .filter((_, o) => o !== optIndex)
+          .map((option, o) => ({ ...option, key: OPTION_KEYS[o] }));
+        const correctAnswer = question.correctAnswer === removedKey ? null : question.correctAnswer;
+        return { ...question, options, correctAnswer };
+      })
+    );
+  }
+
+  function removeQuestion(index) {
+    setPreviewQuestions((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addQuestion() {
+    setPreviewQuestions((prev) => [...prev, blankQuestion(prev.length + 1)]);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (!file || previewQuestions.length === 0) {
-      setError('Upload dan pastikan dokumen berisi soal yang valid.');
+    if (previewQuestions.length === 0) {
+      setError('Upload dokumen atau tambahkan minimal satu soal secara manual.');
+      return;
+    }
+
+    const incomplete = previewQuestions.filter((q) => !isQuestionComplete(q));
+    if (incomplete.length > 0) {
+      setError(
+        `${incomplete.length} soal belum lengkap — pastikan tiap soal punya teks, minimal 2 pilihan, dan jawaban benar dipilih.`
+      );
       return;
     }
 
@@ -60,26 +148,31 @@ export default function UploadExercise() {
     setError('');
 
     try {
-      const extension = file.name.split('.').pop().toLowerCase();
-      const storageRef = ref(storage, `exercises/${user.uid}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const fileUrl = await getDownloadURL(storageRef);
+      const finalQuestions = previewQuestions.map((question, index) => ({
+        id: `q${index + 1}`,
+        number: index + 1,
+        text: question.text.trim(),
+        options: question.options
+          .filter((option) => option.text.trim())
+          .map((option) => ({ key: option.key, text: option.text.trim() })),
+        correctAnswer: question.correctAnswer,
+        explanation: question.explanation.trim() || 'Pembahasan belum tersedia untuk soal ini.',
+      }));
 
       const docRef = await addDoc(collection(db, 'exercises'), {
-        title: title.trim(),
-        fileName: file.name,
-        fileType: extension,
-        fileUrl,
+        title: title.trim() || 'Latihan Tanpa Judul',
+        fileName: file?.name || 'manual',
+        fileType: file ? file.name.split('.').pop().toLowerCase() : 'manual',
         userId: user.uid,
         uploaderName: user.displayName || user.email,
-        questionCount: previewQuestions.length,
-        questions: previewQuestions,
+        questionCount: finalQuestions.length,
+        questions: finalQuestions,
         createdAt: serverTimestamp(),
       });
 
       navigate(`/quiz/${docRef.id}`);
     } catch (err) {
-      setError('Gagal menyimpan latihan. Pastikan Firebase Auth, Firestore, dan Storage sudah aktif.');
+      setError('Gagal menyimpan latihan. Pastikan Firebase Auth dan Firestore sudah aktif.');
     } finally {
       setLoading(false);
     }
@@ -95,11 +188,13 @@ export default function UploadExercise() {
     URL.revokeObjectURL(url);
   }
 
+  const completeCount = previewQuestions.filter(isQuestionComplete).length;
+
   return (
     <div className="page upload-page">
       <div className="page-header">
         <h1>Upload Latihan Soal</h1>
-        <p>Upload file PDF, DOCX, atau TXT. Sistem akan otomatis mendeteksi soal pilihan ganda.</p>
+        <p>Upload file PDF, DOCX, atau TXT, lalu tentukan jawaban benar tiap soal sebelum disimpan.</p>
       </div>
 
       <div className="upload-layout">
@@ -113,21 +208,20 @@ export default function UploadExercise() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Contoh: Latihan Matematika Bab 1"
-              required
             />
           </label>
 
           <label className="file-drop">
             <span>File Soal (PDF / DOCX / TXT)</span>
-            <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileChange} required />
+            <input type="file" accept=".pdf,.docx,.txt" onChange={handleFileChange} />
             {file && <small>File dipilih: {file.name}</small>}
           </label>
 
           {parsing && <p className="muted">Sedang membaca dan menganalisis dokumen...</p>}
 
           {!parsing && previewQuestions.length > 0 && (
-            <div className="alert alert-success">
-              ✓ {previewQuestions.length} soal berhasil terdeteksi dan siap digunakan.
+            <div className={`alert ${completeCount === previewQuestions.length ? 'alert-success' : 'alert-error'}`}>
+              {completeCount}/{previewQuestions.length} soal siap (sudah ada jawaban benar).
             </div>
           )}
 
@@ -138,7 +232,11 @@ export default function UploadExercise() {
 
         <aside className="guide-panel card-panel">
           <h2>Format Dokumen</h2>
-          <p>Gunakan format berikut agar soal terbaca otomatis:</p>
+          <p>
+            Kalau dokumen sudah menyertakan <code>Jawaban: X</code> per soal, kunci jawabannya
+            otomatis terisi. Kalau tidak (mis. bank soal biasa), kamu tinggal pilih jawaban benar
+            manual di panel sebelah kanan bawah setelah upload.
+          </p>
           <pre className="format-example">{getFormatGuide()}</pre>
           <button type="button" className="btn btn-secondary btn-block" onClick={downloadTemplate}>
             Download Contoh Format
@@ -148,9 +246,9 @@ export default function UploadExercise() {
             <h3>Tips</h3>
             <ul>
               <li>Nomor soal diawali angka + titik (1., 2., 3.)</li>
-              <li>Pilihan jawaban: A. B. C. D.</li>
-              <li>Tulis "Jawaban: X" untuk kunci jawaban</li>
-              <li>Tulis "Penjelasan:" untuk pembahasan otomatis</li>
+              <li>Pilihan jawaban: A. B. C. D. (E. opsional)</li>
+              <li>Kalau soal tergabung/tidak terpisah dengan benar, hapus soal itu dan tambahkan manual</li>
+              <li>Bisa juga langsung klik "Tambah Soal Manual" tanpa upload file sama sekali</li>
             </ul>
           </div>
         </aside>
@@ -158,19 +256,90 @@ export default function UploadExercise() {
 
       {previewQuestions.length > 0 && (
         <section className="section-block">
-          <h2>Preview Soal ({previewQuestions.length})</h2>
-          <div className="preview-list">
-            {previewQuestions.slice(0, 5).map((question) => (
-              <article key={question.id} className="preview-item">
-                <strong>{question.number}. {question.text}</strong>
-                <p>{question.options.map((o) => `${o.key}. ${o.text}`).join(' | ')}</p>
-                <small>Jawaban: {question.correctAnswer}</small>
+          <div className="section-header">
+            <h2>Review & Tentukan Jawaban ({previewQuestions.length} soal)</h2>
+          </div>
+
+          <div className="review-edit-list">
+            {previewQuestions.map((question, qIndex) => (
+              <article key={question.id} className={`edit-card ${isQuestionComplete(question) ? 'complete' : 'incomplete'}`}>
+                <div className="edit-card-top">
+                  <span className="question-badge">Soal {qIndex + 1}</span>
+                  <span className={`status-pill ${isQuestionComplete(question) ? 'success' : 'danger'}`}>
+                    {isQuestionComplete(question) ? 'Lengkap' : 'Perlu jawaban'}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn danger"
+                    onClick={() => removeQuestion(qIndex)}
+                    title="Hapus soal ini"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+
+                <label>
+                  Pertanyaan
+                  <textarea
+                    value={question.text}
+                    onChange={(e) => updateQuestion(qIndex, { text: e.target.value })}
+                    rows={2}
+                    placeholder="Tulis pertanyaan di sini..."
+                  />
+                </label>
+
+                <div className="option-edit-list">
+                  {question.options.map((option, optIndex) => (
+                    <div key={option.key} className="option-edit-row">
+                      <button
+                        type="button"
+                        className={`option-key-btn ${question.correctAnswer === option.key ? 'selected' : ''}`}
+                        onClick={() => updateQuestion(qIndex, { correctAnswer: option.key })}
+                        title="Tandai sebagai jawaban benar"
+                      >
+                        {option.key}
+                      </button>
+                      <input
+                        type="text"
+                        value={option.text}
+                        onChange={(e) => updateOptionText(qIndex, optIndex, e.target.value)}
+                        placeholder={`Pilihan ${option.key}`}
+                      />
+                      {question.options.length > 2 && (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => removeOption(qIndex, optIndex)}
+                          title="Hapus pilihan ini"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {question.options.length < 5 && (
+                    <button type="button" className="btn btn-secondary btn-small" onClick={() => addOption(qIndex)}>
+                      <Plus size={14} /> Tambah Pilihan
+                    </button>
+                  )}
+                </div>
+
+                <label>
+                  Pembahasan (opsional)
+                  <textarea
+                    value={question.explanation}
+                    onChange={(e) => updateQuestion(qIndex, { explanation: e.target.value })}
+                    rows={2}
+                    placeholder="Jelaskan kenapa jawaban itu benar (boleh dikosongkan)"
+                  />
+                </label>
               </article>
             ))}
-            {previewQuestions.length > 5 && (
-              <p className="muted">+ {previewQuestions.length - 5} soal lainnya...</p>
-            )}
           </div>
+
+          <button type="button" className="btn btn-secondary" onClick={addQuestion}>
+            <Plus size={16} /> Tambah Soal Manual
+          </button>
         </section>
       )}
     </div>

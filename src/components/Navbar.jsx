@@ -1,45 +1,44 @@
-import { Link, useNavigate } from "react-router-dom";
-import { Home, BookOpen, Upload, History, LogOut } from "lucide-react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Home, Upload, History, LogOut } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 import "./Navbar.css";
 
 function Navbar() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
-  const logout = () => {
-    // nanti sesuaikan dengan Firebase logout kamu
-    localStorage.removeItem("user");
-    navigate("/login");
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } finally {
+      navigate("/login");
+    }
   };
 
   return (
     <nav className="navbar">
-      <div className="navbar-brand">
-        <BookOpen size={28} />
+      <Link to="/" className="navbar-brand">
+        <span className="navbar-brand-mark">KJ</span>
         <h2>Kk Jedi Jaya</h2>
-      </div>
+      </Link>
 
       <div className="navbar-menu">
-        <Link to="/dashboard">
+        <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
           <Home size={18} />
           Dashboard
-        </Link>
+        </NavLink>
 
-        <Link to="/quiz">
-          <BookOpen size={18} />
-          Quiz
-        </Link>
-
-        <Link to="/upload">
+        <NavLink to="/upload" className={({ isActive }) => (isActive ? "active" : "")}>
           <Upload size={18} />
           Upload
-        </Link>
+        </NavLink>
 
-        <Link to="/history">
+        <NavLink to="/history" className={({ isActive }) => (isActive ? "active" : "")}>
           <History size={18} />
           History
-        </Link>
+        </NavLink>
 
-        <button onClick={logout} className="logout">
+        <button onClick={handleLogout} className="logout">
           <LogOut size={18} />
           Logout
         </button>

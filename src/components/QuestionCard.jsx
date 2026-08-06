@@ -1,3 +1,5 @@
+import { Check, X } from 'lucide-react';
+
 export default function QuestionCard({
   question,
   selectedAnswer,
@@ -12,6 +14,7 @@ export default function QuestionCard({
         <span className="question-badge">Soal {question.number}</span>
         {showResult && (
           <span className={`result-pill ${result?.isCorrect ? 'success' : 'danger'}`}>
+            {result?.isCorrect ? <Check size={14} /> : <X size={14} />}
             {result?.isCorrect ? 'Benar' : 'Salah'}
           </span>
         )}
