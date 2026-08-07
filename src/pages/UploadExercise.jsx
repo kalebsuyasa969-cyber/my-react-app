@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
 import { extractTextFromFile } from '../utils/parseDocument';
 import { getFormatGuide, parseQuestionsFromText } from '../utils/parseQuestions';
+import { httpsCallable } from 'firebase/functions';
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E'];
 
@@ -21,17 +22,18 @@ function blankQuestion(number) {
       { key: 'D', text: '' },
     ],
     correctAnswer: null,
-    explanation: '',
+explanation: null,
   };
 }
 
 function isQuestionComplete(question) {
-  const filledOptions = question.options.filter((option) => option.text.trim());
+  const filledOptions = question.options.filter(
+    (option) => option.text.trim()
+  );
+
   return (
     Boolean(question.text.trim()) &&
-    filledOptions.length >= 2 &&
-    Boolean(question.correctAnswer) &&
-    filledOptions.some((option) => option.key === question.correctAnswer)
+    filledOptions.length >= 2
   );
 }
 
@@ -44,6 +46,9 @@ export default function UploadExercise() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
+
+  const [timerMode, setTimerMode] = useState('stopwatch');
+  const [durationMinutes, setDurationMinutes] = useState(30);
 
   async function handleFileChange(event) {
     const selectedFile = event.target.files?.[0];
@@ -110,12 +115,17 @@ export default function UploadExercise() {
       prev.map((question, i) => {
         if (i !== qIndex) return question;
         if (question.options.length <= 2) return question;
-        const removedKey = question.options[optIndex].key;
-        const options = question.options
-          .filter((_, o) => o !== optIndex)
-          .map((option, o) => ({ ...option, key: OPTION_KEYS[o] }));
-        const correctAnswer = question.correctAnswer === removedKey ? null : question.correctAnswer;
-        return { ...question, options, correctAnswer };
+       const options = question.options
+    .filter((_, o) => o !== optIndex)
+    .map((option, o) => ({
+      ...option,
+      key: OPTION_KEYS[o],
+    }));
+
+  return {
+    ...question,
+    options,
+  };
       })
     );
   }
@@ -139,7 +149,7 @@ export default function UploadExercise() {
     const incomplete = previewQuestions.filter((q) => !isQuestionComplete(q));
     if (incomplete.length > 0) {
       setError(
-        `${incomplete.length} soal belum lengkap — pastikan tiap soal punya teks, minimal 2 pilihan, dan jawaban benar dipilih.`
+        `${incomplete.length} soal belum lengkap — pastikan tiap soal memiliki teks dan minimal dua pilihan jawaban.`
       );
       return;
     }
@@ -152,11 +162,16 @@ export default function UploadExercise() {
         id: `q${index + 1}`,
         number: index + 1,
         text: question.text.trim(),
+
         options: question.options
           .filter((option) => option.text.trim())
-          .map((option) => ({ key: option.key, text: option.text.trim() })),
-        correctAnswer: question.correctAnswer,
-        explanation: question.explanation.trim() || 'Pembahasan belum tersedia untuk soal ini.',
+          .map((option) => ({
+            key: option.key,
+            text: option.text.trim(),
+          })),
+
+        correctAnswer: null,
+        explanation: null,
       }));
 
       const docRef = await addDoc(collection(db, 'exercises'), {
@@ -167,8 +182,27 @@ export default function UploadExercise() {
         uploaderName: user.displayName || user.email,
         questionCount: finalQuestions.length,
         questions: finalQuestions,
+
+        status: 'processing',
+
+        timerMode,
+
+        durationMinutes:
+          timerMode === 'countdown'
+            ? Number(durationMinutes)
+            : null,
+
         createdAt: serverTimestamp(),
       });
+
+      // Trigger AI processing to fill correctAnswer and explanation
+      try {
+        const processExercise = httpsCallable(functions, 'processExercise');
+        await processExercise({ exerciseId: docRef.id });
+      } catch (aiErr) {
+        console.warn('AI processing failed:', aiErr);
+        // Not blocking the flow; questions will still be usable
+      }
 
       navigate(`/quiz/${docRef.id}`);
     } catch (err) {
@@ -194,7 +228,10 @@ export default function UploadExercise() {
     <div className="page upload-page">
       <div className="page-header">
         <h1>Upload Latihan Soal</h1>
-        <p>Upload file PDF, DOCX, atau TXT, lalu tentukan jawaban benar tiap soal sebelum disimpan.</p>
+        <p>
+Upload file PDF, DOCX, atau TXT, lalu periksa kembali soal sebelum disimpan.
+Kunci jawaban dan pembahasan akan diproses otomatis oleh sistem.
+        </p>
       </div>
 
       <div className="upload-layout">
@@ -220,128 +257,156 @@ export default function UploadExercise() {
           {parsing && <p className="muted">Sedang membaca dan menganalisis dokumen...</p>}
 
           {!parsing && previewQuestions.length > 0 && (
-            <div className={`alert ${completeCount === previewQuestions.length ? 'alert-success' : 'alert-error'}`}>
-              {completeCount}/{previewQuestions.length} soal siap (sudah ada jawaban benar).
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading || parsing}>
-            {loading ? 'Menyimpan...' : 'Simpan & Mulai Latihan'}
-          </button>
-        </form>
-
-        <aside className="guide-panel card-panel">
-          <h2>Format Dokumen</h2>
-          <p>
-            Kalau dokumen sudah menyertakan <code>Jawaban: X</code> per soal, kunci jawabannya
-            otomatis terisi. Kalau tidak (mis. bank soal biasa), kamu tinggal pilih jawaban benar
-            manual di panel sebelah kanan bawah setelah upload.
-          </p>
-          <pre className="format-example">{getFormatGuide()}</pre>
-          <button type="button" className="btn btn-secondary btn-block" onClick={downloadTemplate}>
-            Download Contoh Format
-          </button>
-
-          <div className="tips-list">
-            <h3>Tips</h3>
-            <ul>
-              <li>Nomor soal diawali angka + titik (1., 2., 3.)</li>
-              <li>Pilihan jawaban: A. B. C. D. (E. opsional)</li>
-              <li>Kalau soal tergabung/tidak terpisah dengan benar, hapus soal itu dan tambahkan manual</li>
-              <li>Bisa juga langsung klik "Tambah Soal Manual" tanpa upload file sama sekali</li>
-            </ul>
-          </div>
-        </aside>
-      </div>
-
-      {previewQuestions.length > 0 && (
-        <section className="section-block">
-          <div className="section-header">
-            <h2>Review & Tentukan Jawaban ({previewQuestions.length} soal)</h2>
-          </div>
-
-          <div className="review-edit-list">
-            {previewQuestions.map((question, qIndex) => (
-              <article key={question.id} className={`edit-card ${isQuestionComplete(question) ? 'complete' : 'incomplete'}`}>
-                <div className="edit-card-top">
-                  <span className="question-badge">Soal {qIndex + 1}</span>
-                  <span className={`status-pill ${isQuestionComplete(question) ? 'success' : 'danger'}`}>
-                    {isQuestionComplete(question) ? 'Lengkap' : 'Perlu jawaban'}
-                  </span>
-                  <button
-                    type="button"
-                    className="icon-btn danger"
-                    onClick={() => removeQuestion(qIndex)}
-                    title="Hapus soal ini"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-
-                <label>
-                  Pertanyaan
-                  <textarea
-                    value={question.text}
-                    onChange={(e) => updateQuestion(qIndex, { text: e.target.value })}
-                    rows={2}
-                    placeholder="Tulis pertanyaan di sini..."
-                  />
-                </label>
-
-                <div className="option-edit-list">
-                  {question.options.map((option, optIndex) => (
-                    <div key={option.key} className="option-edit-row">
-                      <button
-                        type="button"
-                        className={`option-key-btn ${question.correctAnswer === option.key ? 'selected' : ''}`}
-                        onClick={() => updateQuestion(qIndex, { correctAnswer: option.key })}
-                        title="Tandai sebagai jawaban benar"
-                      >
-                        {option.key}
-                      </button>
-                      <input
-                        type="text"
-                        value={option.text}
-                        onChange={(e) => updateOptionText(qIndex, optIndex, e.target.value)}
-                        placeholder={`Pilihan ${option.key}`}
-                      />
-                      {question.options.length > 2 && (
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => removeOption(qIndex, optIndex)}
-                          title="Hapus pilihan ini"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {question.options.length < 5 && (
-                    <button type="button" className="btn btn-secondary btn-small" onClick={() => addOption(qIndex)}>
-                      <Plus size={14} /> Tambah Pilihan
-                    </button>
-                  )}
-                </div>
-
-                <label>
-                  Pembahasan (opsional)
-                  <textarea
-                    value={question.explanation}
-                    onChange={(e) => updateQuestion(qIndex, { explanation: e.target.value })}
-                    rows={2}
-                    placeholder="Jelaskan kenapa jawaban itu benar (boleh dikosongkan)"
-                  />
-                </label>
-              </article>
-            ))}
-          </div>
-
-          <button type="button" className="btn btn-secondary" onClick={addQuestion}>
-            <Plus size={16} /> Tambah Soal Manual
-          </button>
-        </section>
+        <div className={`alert ${completeCount === previewQuestions.length ? 'alert-success' : 'alert-error'}`}>
+          {completeCount}/{previewQuestions.length} soal siap diupload.
+        </div>
       )}
-    </div>
-  );
+
+        <div className="timer-setting">
+          <h3>Mode Waktu</h3>
+
+          <label>
+            <input
+              type="radio"
+              name="timerMode"
+              value="stopwatch"
+              checked={timerMode === "stopwatch"}
+              onChange={() => setTimerMode("stopwatch")}
+            />
+            Stopwatch (hitung lama pengerjaan)
+          </label>
+
+          <label>
+            <input
+              type="radio"
+              name="timerMode"
+              value="countdown"
+              checked={timerMode === "countdown"}
+              onChange={() => setTimerMode("countdown")}
+            />
+            Hitung Mundur
+          </label>
+
+          {timerMode === "countdown" && (
+            <label>
+              Durasi (menit)
+
+              <input
+                type="number"
+                min="1"
+                value={durationMinutes}
+                onChange={(e) =>
+                  setDurationMinutes(Number(e.target.value))
+                }
+              />
+            </label>
+          )}
+        </div>
+
+        <button
+          type="submit"
+          className="btn btn-primary btn-block"
+          disabled={loading || parsing}
+        >
+          {loading ? "Menyimpan..." : "Simpan & Mulai Latihan"}
+        </button>
+                </form>
+
+                <aside className="guide-panel card-panel">
+                  <h2>Format Dokumen</h2>
+                  <p>
+Dokumen cukup berisi nomor soal, pertanyaan, dan pilihan jawaban.
+Jawaban benar serta pembahasan akan diproses otomatis oleh sistem setelah latihan diupload.
+                  </p>
+                  <pre className="format-example">{getFormatGuide()}</pre>
+                  <button type="button" className="btn btn-secondary btn-block" onClick={downloadTemplate}>
+                    Download Contoh Format
+                  </button>
+
+                  <div className="tips-list">
+                    <h3>Tips</h3>
+                    <ul>
+                      <li>Nomor soal diawali angka + titik (1., 2., 3.)</li>
+                      <li>Pilihan jawaban: A. B. C. D. (E. opsional)</li>
+                      <li>Kalau soal tergabung/tidak terpisah dengan benar, hapus soal itu dan tambahkan manual</li>
+                      <li>Bisa juga langsung klik "Tambah Soal Manual" tanpa upload file sama sekali</li>
+                    </ul>
+                  </div>
+                </aside>
+              </div>
+
+              {previewQuestions.length > 0 && (
+                <section className="section-block">
+                  <div className="section-header">
+                    <h2>Review Soal ({previewQuestions.length} soal)</h2>
+                  </div>
+
+                  <div className="review-edit-list">
+                    {previewQuestions.map((question, qIndex) => (
+                      <article key={question.id} className={`edit-card ${isQuestionComplete(question) ? 'complete' : 'incomplete'}`}>
+                        <div className="edit-card-top">
+                          <span className="question-badge">Soal {qIndex + 1}</span>
+                          <span className={`status-pill ${isQuestionComplete(question) ? 'success' : 'danger'}`}>
+                            {isQuestionComplete(question) ? 'Siap Upload' : 'Belum Lengkap'}
+                          </span>
+                          <button
+                            type="button"
+                            className="icon-btn danger"
+                            onClick={() => removeQuestion(qIndex)}
+                            title="Hapus soal ini"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+
+                        <label>
+                          Pertanyaan
+                          <textarea
+                            value={question.text}
+                            onChange={(e) => updateQuestion(qIndex, { text: e.target.value })}
+                            rows={2}
+                            placeholder="Tulis pertanyaan di sini..."
+                          />
+                        </label>
+
+                        <div className="option-edit-list">
+                          {question.options.map((option, optIndex) => (
+                            <div key={option.key} className="option-edit-row">
+
+                              <input
+                                type="text"
+                                value={option.text}
+                                onChange={(e) => updateOptionText(qIndex, optIndex, e.target.value)}
+                                placeholder={`Pilihan ${option.key}`}
+                              />
+                              {question.options.length > 2 && (
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  onClick={() => removeOption(qIndex, optIndex)}
+                                  title="Hapus pilihan ini"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {question.options.length < 5 && (
+                            <button type="button" className="btn btn-secondary btn-small" onClick={() => addOption(qIndex)}>
+                              <Plus size={14} /> Tambah Pilihan
+                            </button>
+                          )}
+                        </div>
+
+                      </article>
+                    ))}
+                  </div>
+
+                  <button type="button" className="btn btn-secondary" onClick={addQuestion}>
+                    <Plus size={16} /> Tambah Soal Manual
+                  </button>
+                </section>
+              )}
+            </div>
+          );
 }

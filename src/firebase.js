@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyD63B33JSCVH4BmF4aopFVoeBIWc9LXGZ0',
@@ -15,6 +16,7 @@ const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const functions = getFunctions(app);
 export const googleProvider = new GoogleAuthProvider();
 // Note: Firebase Storage is intentionally not used. Since Feb 2026, Storage
 // requires the paid Blaze plan even for free-tier usage. The uploaded file

@@ -21,3 +21,15 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# environment variables
+.env
+.env.*
+
+# Firebase secrets
+.firebase/
+
+# Firebase Admin credentials
+serviceAccountKey.json
+*.json.json
+backend/serviceAccountKey.json.json

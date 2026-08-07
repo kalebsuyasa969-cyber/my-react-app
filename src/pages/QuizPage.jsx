@@ -15,30 +15,63 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [elapsed, setElapsed] = useState(0);
+const [remaining, setRemaining] = useState(null);
 
-  useEffect(() => {
-    async function loadExercise() {
-      try {
-        const snap = await getDoc(doc(db, 'exercises', exerciseId));
-        if (!snap.exists()) {
-          setError('Latihan tidak ditemukan.');
-        } else {
-          setExercise({ id: snap.id, ...snap.data() });
+useEffect(() => {
+  async function loadExercise() {
+    try {
+      const snap = await getDoc(doc(db, 'exercises', exerciseId));
+
+      if (!snap.exists()) {
+        setError('Latihan tidak ditemukan.');
+      } else {
+        const data = {
+          id: snap.id,
+          ...snap.data(),
+        };
+
+        setExercise(data);
+
+        if (
+          data.timerMode === "countdown" &&
+          data.durationMinutes
+        ) {
+          setRemaining(data.durationMinutes * 60);
         }
-      } catch (err) {
-        setError('Gagal memuat latihan.');
-      } finally {
-        setLoading(false);
       }
+    } catch (err) {
+      setError('Gagal memuat latihan.');
+    } finally {
+      setLoading(false);
     }
+  }
 
-    loadExercise();
-  }, [exerciseId]);
+  loadExercise();
+}, [exerciseId]);
 
   useEffect(() => {
-    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
+    if (!exercise) return;
+  
+    const timer = setInterval(() => {
+      if (exercise.timerMode === "countdown") {
+        setRemaining((prev) => {
+          if (prev === null) return null;
+  
+          if (prev <= 1) {
+            clearInterval(timer);
+            handleSubmit();
+            return 0;
+          }
+  
+          return prev - 1;
+        });
+      } else {
+        setElapsed((prev) => prev + 1);
+      }
+    }, 1000);
+  
     return () => clearInterval(timer);
-  }, []);
+  }, [exercise]);
 
   const questions = exercise?.questions || [];
   const currentQuestion = questions[currentIndex];
@@ -62,7 +95,14 @@ export default function QuizPage() {
     }
 
     navigate('/results/new', {
-      state: { answers, elapsed, exercise },
+      state: {
+        answers,
+        elapsed:
+          exercise.timerMode === "countdown"
+            ? (exercise.durationMinutes * 60) - remaining
+            : elapsed,
+        exercise,
+      },
     });
   }
 
@@ -89,9 +129,33 @@ export default function QuizPage() {
         <div>
           <p className="eyebrow">Sedang mengerjakan</p>
           <h1>{exercise.title}</h1>
+          <p className="muted">
+  Mode:
+  {exercise.timerMode === "countdown"
+    ? " Hitung Mundur"
+    : " Stopwatch"}
+</p>
         </div>
         <div className="quiz-meta">
-          <span className="timer-badge">⏱ {formatDuration(elapsed)}</span>
+          <span
+  className="timer-badge"
+  style={
+    exercise?.timerMode === "countdown" &&
+    remaining !== null &&
+    remaining < 60
+      ? {
+          background: "#dc2626",
+          color: "white",
+          fontWeight: "bold",
+        }
+      : {}
+  }
+>
+  ⏱{" "}
+  {exercise?.timerMode === "countdown"
+    ? formatDuration(remaining ?? 0)
+    : formatDuration(elapsed)}
+</span>
           <span>{answeredCount}/{questions.length} dijawab</span>
         </div>
       </div>
